@@ -1,131 +1,48 @@
 const scenarios = [
-  {
-    id: 'threads', icon: '⌁', codeFile: 'inventory_worker.py', title: 'Inventory Sync', operation: 'OPERATION 01 / I-O LINE', difficulty: 'TRAINING',
-    brief: 'The order desk is waiting on supplier responses. Five workers are supposed to update the shared inventory count, but the final total is wrong. Find the coordination fault before the next shipment leaves.',
-    code: ['from concurrent.futures import ThreadPoolExecutor', 'inventory = 0', '', 'def receive_order(quantity):', '    global inventory', '    current = inventory', '    # another worker can run here', '    inventory = current + quantity', '', 'with ThreadPoolExecutor(max_workers=5) as pool:', '    pool.map(receive_order, [2, 4, 1, 3, 5])'],
-    choices: [
-      {code: 'Add a Lock around the read + write', detail: 'Make the critical section atomic.', correct: true},
-      {code: 'Use more threads', detail: 'More workers will fix the total.', correct: false},
-      {code: 'Replace ThreadPoolExecutor with asyncio', detail: 'Async automatically protects shared state.', correct: false},
-      {code: 'Remove the global keyword', detail: 'Local variables are shared safely.', correct: false}
-    ],
-    explanation: '<strong>Patch accepted: protect the critical section.</strong> A thread can be interrupted between reading and writing <code>inventory</code>. Use <code>threading.Lock()</code> and acquire it around both operations, or return values from workers and combine them in one place. Threads help with I/O waiting, but they do not make shared state safe automatically.',
-    telemetry: ['5 workers', 'I/O wait', 'race condition', 'LOCK REQUIRED']
-  },
-  {
-    id: 'processes', icon: '▦', codeFile: 'image_forge.py', title: 'Image Forge', operation: 'OPERATION 02 / CPU LINE', difficulty: 'FIELD TEST',
-    brief: 'The forge must resize 24 high-resolution images. The current threaded line barely uses the CPU and misses its delivery window. Select the execution model that can perform real CPU work in parallel.',
-    code: ['from concurrent.futures import ThreadPoolExecutor', '', 'def render(image):', '    return expensive_pixel_math(image)', '', 'with ThreadPoolExecutor(max_workers=8) as pool:', '    finished = list(pool.map(render, images))'],
-    choices: [
-      {code: 'Use ProcessPoolExecutor', detail: 'Separate processes can use multiple CPU cores.', correct: true},
-      {code: 'Use one more ThreadPoolExecutor', detail: 'Threads bypass the GIL for CPU work.', correct: false},
-      {code: 'Add await before render(image)', detail: 'await makes calculations parallel.', correct: false},
-      {code: 'Run the loop eight times', detail: 'Repeated loops create workers.', correct: false}
-    ],
-    explanation: '<strong>Patch accepted: move CPU work into processes.</strong> CPython’s GIL prevents multiple threads from executing Python bytecode at the same time. <code>ProcessPoolExecutor</code> gives each worker its own interpreter, allowing CPU-bound work to run in parallel. The tradeoff is process startup and data-transfer overhead.',
-    telemetry: ['24 images', 'CPU bound', 'GIL bottleneck', 'PROCESSES']
-  },
-  {
-    id: 'asyncio', icon: '≈', codeFile: 'dispatch_center.py', title: 'Dispatch Center', operation: 'OPERATION 03 / NETWORK LINE', difficulty: 'ADVANCED',
-    brief: 'The dispatch center must check six remote stations. Each request spends most of its time waiting on the network. Repair the coroutine launch so the requests overlap instead of queueing one by one.',
-    code: ['import asyncio', '', 'async def check_station(station):', '    await network_ping(station)', '    return station.status', '', 'async def check_all(stations):', '    results = []', '    for station in stations:', '        results.append(check_station(station))', '    return results'],
-    choices: [
-      {code: 'Use await asyncio.gather(*tasks)', detail: 'Schedule the coroutines together.', correct: true},
-      {code: 'Add time.sleep(1) inside the loop', detail: 'A pause creates concurrency.', correct: false},
-      {code: 'Call asyncio.run for every station', detail: 'One event loop per request is faster.', correct: false},
-      {code: 'Remove async from check_station', detail: 'Regular functions can await.', correct: false}
-    ],
-    explanation: '<strong>Patch accepted: gather the coroutines.</strong> Calling an async function creates a coroutine object; it does not run it. Build a task list and use <code>await asyncio.gather(*tasks)</code> to let the event loop switch while each request waits. This is concurrency, not CPU parallelism.',
-    telemetry: ['6 stations', 'network wait', 'coroutines', 'GATHER TASKS']
-  }
+  { id:'threads', icon:'⌁', codeFile:'inventory_worker.py', title:'Inventory Sync', operation:'OPERATION 01 / I-O LINE', difficulty:'TRAINING',
+    brief:'Five supplier responses arrive over the network. Build a threaded worker pool that updates a shared inventory safely. The line must overlap waiting and protect the read → modify → write section.', tags:['I/O-bound','threads','shared state'], mode:'threads',
+    blocks:[
+      ['import concurrent.futures', 'import'], ['import threading', 'import'], ['inventory_lock = threading.Lock()', 'lock'], ['inventory = 0', 'setup'], ['def receive_order(quantity):', 'function'], ['    with inventory_lock:', 'guard'], ['        inventory += quantity', 'update'], ['with ThreadPoolExecutor(max_workers=5) as pool:', 'pool'], ['    pool.map(receive_order, orders)', 'map'], ['for order in orders: receive_order(order)', 'distractor'], ['await receive_order(order)', 'distractor']],
+    required:['import threading','inventory_lock = threading.Lock()','def receive_order(quantity):','with inventory_lock:','inventory += quantity','with ThreadPoolExecutor(max_workers=5) as pool:','pool.map(receive_order, orders)'],
+    editor:`# Build a safe I/O worker system\norders = [2, 4, 1, 3, 5]\n\n# define the shared state, worker, and pool here\n`,
+    success:'The inventory line is safe: threads overlap the supplier wait, while the lock makes the shared update atomic.', fail:'The factory still sees an unsafe or sequential line. Check that the lock wraps the whole update and that the pool maps the worker over the orders.',
+    sim:[['THREAD 01',[['supplier wait','io',0,25],['lock + update','lock',25,20],['done','done',46,10]]],['THREAD 02',[['supplier wait','io',10,25],['lock + update','lock',45,20],['done','done',66,10]]],['THREAD 03',[['supplier wait','io',20,25],['lock + update','lock',65,20],['done','done',86,10]]],['THREAD 04',[['supplier wait','io',31,25],['lock + update','lock',85,20],['done','done',100,10]]]] },
+  { id:'processes', icon:'▦', codeFile:'image_forge.py', title:'Image Forge', operation:'OPERATION 02 / CPU LINE', difficulty:'FIELD TEST',
+    brief:'The forge must apply expensive pixel math to 24 images. Build a process pool so the work can use multiple CPU cores. Threads are a decoy here: the GIL keeps Python bytecode from running in parallel in one interpreter.', tags:['CPU-bound','processes','GIL'], mode:'processes',
+    blocks:[
+      ['from concurrent.futures import ProcessPoolExecutor', 'import'], ['def render(image):', 'function'], ['    return expensive_pixel_math(image)', 'work'], ['with ProcessPoolExecutor(max_workers=4) as pool:', 'pool'], ['    finished = list(pool.map(render, images))', 'map'], ['from concurrent.futures import ThreadPoolExecutor', 'distractor'], ['await render(image)', 'distractor'], ['for image in images: render(image)', 'distractor']],
+    required:['from concurrent.futures import ProcessPoolExecutor','def render(image):','return expensive_pixel_math(image)','with ProcessPoolExecutor(max_workers=4) as pool:','pool.map(render, images)'],
+    editor:`# Build a process pool for CPU work\nimages = load_images()\n\ndef render(image):\n    return expensive_pixel_math(image)\n\n# choose the right executor and collect results\n`,
+    success:'The image forge is using separate Python processes. Four CPU lanes can execute the pixel math at the same time, outside one interpreter’s GIL.', fail:'The forge is still serial or trapped behind the GIL. Use ProcessPoolExecutor, not threads or await, and map the render function across images.',
+    sim:[['PROCESS 01',[['pixel math','cpu',0,49],['encoded','done',51,12]]],['PROCESS 02',[['pixel math','cpu',0,49],['encoded','done',51,12]]],['PROCESS 03',[['pixel math','cpu',11,49],['encoded','done',62,12]]],['PROCESS 04',[['pixel math','cpu',22,49],['encoded','done',73,12]]]] },
+  { id:'asyncio', icon:'≈', codeFile:'dispatch_center.py', title:'Dispatch Center', operation:'OPERATION 03 / NETWORK LINE', difficulty:'ADVANCED',
+    brief:'Six remote stations need a status check. Build an async dispatcher that schedules all requests together. Calling a coroutine is not enough: the event loop needs tasks and gather to overlap network waiting.', tags:['I/O-bound','asyncio','coroutines'], mode:'asyncio',
+    blocks:[
+      ['import asyncio', 'import'], ['async def check_station(station):', 'function'], ['    return await network_ping(station)', 'await'], ['async def check_all(stations):', 'function'], ['    tasks = [asyncio.create_task(check_station(s)) for s in stations]', 'tasks'], ['    return await asyncio.gather(*tasks)', 'gather'], ['asyncio.run(check_all(stations))', 'run'], ['for station in stations: await check_station(station)', 'distractor'], ['results.append(check_station(station))', 'distractor']],
+    required:['import asyncio','async def check_station(station):','return await network_ping(station)','async def check_all(stations):','asyncio.create_task','await asyncio.gather','asyncio.run'],
+    editor:`# Build an async network dispatcher\nstations = load_stations()\n\nasync def check_station(station):\n    return await network_ping(station)\n\n# schedule every station and run the event loop\n`,
+    success:'The dispatcher schedules all coroutines on one event loop. While one station waits on the network, another can make progress.', fail:'The dispatcher is creating coroutine objects but not scheduling them together. Use create_task + await asyncio.gather, then start the loop with asyncio.run.',
+    sim:[['TASK A',[['network wait','io',0,62],['status','done',65,13]]],['TASK B',[['network wait','io',0,42],['status','done',46,13]]],['TASK C',[['network wait','io',7,68],['status','done',77,13]]],['TASK D',[['network wait','io',18,45],['status','done',66,13]]]] }
 ];
 
-let active = 0;
-let selected = null;
-let solved = new Set();
-let streak = 0;
-let xp = 0;
+let active = 0, mode = 'blocks', dragged = null, selected = [], solved = new Set(), streak = 0, xp = 0;
+const $ = id => document.getElementById(id);
+const current = () => scenarios[active];
 
-const $ = (id) => document.getElementById(id);
-
-function renderScenarioList() {
-  $('scenario-list').innerHTML = scenarios.map((s, index) => `
-    <button class="scenario-button ${index === active ? 'active' : ''}" data-index="${index}" type="button">
-      <span class="scenario-top"><span class="scenario-icon">${s.icon}</span>${s.operation}</span>
-      <strong>${s.title}</strong><small>${s.id === 'threads' ? 'Shared state + locks' : s.id === 'processes' ? 'CPU work + the GIL' : 'Coroutines + waiting'}</small>
-    </button>`).join('');
-  document.querySelectorAll('.scenario-button').forEach((button) => button.addEventListener('click', () => {
-    active = Number(button.dataset.index); selected = null; render();
-  }));
-}
-
-function codeMarkup(lines) {
-  return lines.map((line, i) => `<span class="code-line"><span class="line-number">${String(i + 1).padStart(2, '0')}</span>${highlight(line)}</span>`).join('');
-}
-
-function highlight(line) {
-  let safe = line.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-  safe = safe.replace(/(#.*)$/g, '<span class="syntax-comment">$1</span>');
-  safe = safe.replace(/\b(from|import|as|def|global|with|in|return)\b/g, '<span class="syntax-key">$1</span>');
-  safe = safe.replace(/\b(ThreadPoolExecutor|ProcessPoolExecutor|pool\.map|asyncio|network_ping)\b/g, '<span class="syntax-fn">$1</span>');
-  safe = safe.replace(/(\[[^\]]*\])/g, '<span class="syntax-string">$1</span>');
-  return safe;
-}
-
-function renderTelemetry(items) {
-  $('telemetry').innerHTML = items.map((item, i) => `<div class="telemetry-cell ${i === 3 ? 'good' : ''}"><span>${['QUEUE', 'WORK PROFILE', 'FAULT SIGNAL', 'TARGET PATCH'][i]}</span><strong>${item}</strong></div>`).join('');
-}
-
-function render() {
-  const s = scenarios[active];
-  renderScenarioList();
-  $('scenario-kicker').textContent = s.operation;
-  $('scenario-title').textContent = s.title;
-  $('difficulty-label').textContent = s.difficulty;
-  $('mission-icon').textContent = s.icon;
-  $('mission-text').textContent = s.brief;
-  $('file-label').textContent = s.codeFile;
-  $('code-block').innerHTML = codeMarkup(s.code);
-  renderTelemetry(s.telemetry);
-  $('telemetry-label').textContent = solved.has(s.id) ? 'PATCH VERIFIED' : 'FAULT ACTIVE';
-  $('choices').innerHTML = s.choices.map((choice, i) => `<button class="choice ${selected === i ? 'selected' : ''}" data-choice="${i}" type="button"><code>${choice.code}</code><small>${choice.detail}</small></button>`).join('');
-  document.querySelectorAll('.choice').forEach((button) => button.addEventListener('click', () => { selected = Number(button.dataset.choice); render(); }));
-  $('run-button').disabled = selected === null;
-  $('run-button').style.opacity = selected === null ? '.55' : '1';
-  $('feedback').className = 'feedback hidden';
-  $('feedback').innerHTML = '';
-  $('solved-count').textContent = solved.size;
-  $('streak-count').textContent = streak;
-  $('score-label').textContent = `${xp} XP`;
-}
-
-$('run-button').addEventListener('click', () => {
-  if (selected === null) return;
-  const s = scenarios[active];
-  const good = s.choices[selected].correct;
-  const feedback = $('feedback');
-  feedback.className = `feedback ${good ? 'success' : 'error'}`;
-  if (good) {
-    if (!solved.has(s.id)) { solved.add(s.id); xp += 100; }
-    streak += 1;
-    feedback.innerHTML = s.explanation;
-    $('telemetry-label').textContent = 'PATCH VERIFIED';
-    $('telemetry-label').style.color = '#4caa72';
-  } else {
-    streak = 0;
-    feedback.innerHTML = '<strong>Patch rejected: the line still has a fault.</strong> Watch the symptom and ask what the worker is waiting on—or what state it shares. Try another repair and run the line again.';
-  }
-  $('solved-count').textContent = solved.size;
-  $('streak-count').textContent = streak;
-  $('score-label').textContent = `${xp} XP`;
-  $('run-button').disabled = true;
-  $('run-button').style.opacity = '.55';
-  document.querySelectorAll('.choice').forEach((button, i) => {
-    button.disabled = true;
-    if (s.choices[i].correct) button.classList.add('correct');
-    if (i === selected && !good) button.classList.add('wrong');
-  });
-});
-
+function renderScenarioList(){ $('scenario-list').innerHTML = scenarios.map((s,i)=>`<button class="scenario-button ${i===active?'active':''}" data-index="${i}" type="button"><span class="scenario-top"><span class="scenario-icon">${s.icon}</span>${s.operation}</span><strong>${s.title}</strong><small>${s.tags.join(' · ')}</small></button>`).join(''); document.querySelectorAll('.scenario-button').forEach(b=>b.onclick=()=>{active=+b.dataset.index; mode='blocks'; selected=[]; render();}); }
+function renderHeader(){ const s=current(); $('scenario-kicker').textContent=s.operation; $('scenario-title').textContent=s.title; $('difficulty-label').textContent=s.difficulty; $('mission-icon').textContent=s.icon; $('mission-text').textContent=s.brief; $('constraint-row').innerHTML=s.tags.map(t=>`<span class="constraint">${t}</span>`).join(''); $('solved-count').textContent=solved.size; $('streak-count').textContent=streak; $('score-label').textContent=`${xp} XP`; }
+function blockMarkup(block, where, index){ const [code,type]=block; return `<div class="code-block ${type==='distractor'?'distractor':''}" draggable="true" data-code="${encodeURIComponent(code)}" data-type="${type}" data-where="${where}" data-index="${index}"><span class="grip">⠿</span><code>${escapeHTML(code)}</code>${where==='lane'?'<button class="remove" title="Return block to parts bin" type="button">×</button>':''}</div>`; }
+function renderBlocks(){ const s=current(); $('block-bank').innerHTML=s.blocks.map((b,i)=>blockMarkup(b,'bank',i)).join(''); $('assembly-lane').innerHTML=selected.map((b,i)=>blockMarkup(b,'lane',i)).join(''); $('parts-count').textContent=`${s.blocks.length-selected.length} AVAILABLE`; wireDrag(); }
+function wireDrag(){ document.querySelectorAll('.code-block').forEach(el=>{el.addEventListener('dragstart',e=>{dragged={code:decodeURIComponent(el.dataset.code),type:el.dataset.type,from:el.dataset.where,index:+el.dataset.index}; e.dataTransfer.effectAllowed='move'; el.style.opacity='.4';}); el.addEventListener('dragend',()=>el.style.opacity='1');}); document.querySelectorAll('.remove').forEach(btn=>btn.onclick=()=>{const i=+btn.parentElement.dataset.index; selected.splice(i,1); renderBlocks();}); [ $('block-bank'),$('assembly-lane') ].forEach(zone=>{zone.ondragover=e=>{e.preventDefault();zone.classList.add('drag-over')}; zone.ondragleave=()=>zone.classList.remove('drag-over'); zone.ondrop=e=>{e.preventDefault();zone.classList.remove('drag-over'); if(!dragged)return; if(zone.id==='assembly-lane'&&dragged.from==='bank'){selected.push([dragged.code,dragged.type]);} else if(zone.id==='block-bank'&&dragged.from==='lane'){selected.splice(dragged.index,1);} dragged=null; renderBlocks();};}); }
+function renderEditor(){ $('code-editor').value=current().editor; $('code-editor').oninput=()=>{}; }
+function resetResult(){ $('result-panel').className='result-panel hidden'; $('result-panel').innerHTML=''; $('simulation-label').textContent='AWAITING PATCH'; $('simulation').className='simulation empty'; $('simulation').innerHTML='<div class="empty-sim"><span>◌</span><p>Run a constructed system to see the factory move.</p></div>'; }
+function switchMode(next){ mode=next; document.querySelectorAll('.mode-tab').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode)); $('blocks-mode').classList.toggle('hidden',mode!=='blocks'); $('write-mode').classList.toggle('hidden',mode!=='write'); $('run-help-text').textContent=mode==='blocks'?'Assemble every required block, then run the line.':'Write the complete worker system, then run the line.'; resetResult(); }
+function evaluate(){ const s=current(); if(mode==='blocks'){ const built=selected.map(b=>b[0]); const exact=built.length===s.required.length&&built.every((line,i)=>line.includes(s.required[i])||s.required[i].includes(line)); const hasDistractor=selected.some(b=>b[1]==='distractor'); return exact&&!hasDistractor; } const code=$('code-editor').value; return s.required.every(token=>code.includes(token)); }
+function renderSimulation(){ const s=current(); $('simulation-label').textContent='LINE RUNNING'; const lanes=s.sim.map((lane,li)=>`<div class="lane"><div class="lane-label">${lane[0]}</div><div class="track">${lane[1].map((e,i)=>`<div class="event ${e[1]}" style="left:${e[2]}%;width:${e[3]}%;animation-delay:${(li+i)*.08}s">${e[0]}</div>`).join('')}</div></div>`).join(''); $('simulation').className='simulation'; $('simulation').innerHTML=`<div class="timeline-ruler"><span class="tick">0 ms</span><span class="tick">25</span><span class="tick">50</span><span class="tick">75</span><span class="tick">100</span></div>${lanes}<div class="sim-legend"><span style="--swatch:#5caaa1">I/O wait</span><span style="--swatch:#d49355">CPU work</span><span style="--swatch:#8569b1">lock / coordination</span><span style="--swatch:#5eaa70">completed</span></div>`; setTimeout(()=>{$('simulation-label').textContent='PATCH VERIFIED';},650); }
+function run(){ const s=current(); const good=evaluate(); const panel=$('result-panel'); panel.className=`result-panel ${good?'success':'error'}`; if(good){ if(!solved.has(s.id)){solved.add(s.id);xp+=100;} streak++; panel.innerHTML=`<strong>LINE CLEARED — ${s.title} is operating.</strong>${s.success}`; renderSimulation(); } else { streak=0; panel.innerHTML=`<strong>LINE JAMMED — inspect the construction.</strong>${s.fail}`; renderBrokenSimulation(); } $('solved-count').textContent=solved.size; $('streak-count').textContent=streak; $('score-label').textContent=`${xp} XP`; }
+function renderBrokenSimulation(){ const s=current(); $('simulation-label').textContent='FAULT DETECTED'; const broken=s.sim.map((lane,li)=>`<div class="lane"><div class="lane-label">${lane[0]}</div><div class="track">${lane[1].map((e,i)=>`<div class="event ${i===lane[1].length-1?'bug':'wait'}" style="left:${e[2]}%;width:${e[3]}%;animation-delay:${(li+i)*.08}s">${i===lane[1].length-1?'blocked / retry':e[0]}</div>`).join('')}</div></div>`).join(''); $('simulation').className='simulation'; $('simulation').innerHTML=`<div class="timeline-ruler"><span class="tick">0 ms</span><span class="tick">25</span><span class="tick">50</span><span class="tick">75</span><span class="tick">100</span></div>${broken}<div class="sim-legend"><span style="--swatch:#b5c1ba">waiting</span><span style="--swatch:#bb4e43">fault / blocked</span></div>`; }
+function escapeHTML(text){return text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
+document.querySelectorAll('.mode-tab').forEach(b=>b.onclick=()=>switchMode(b.dataset.mode)); $('run-button').onclick=run;
+function render(){ renderScenarioList(); renderHeader(); renderBlocks(); renderEditor(); resetResult(); switchMode('blocks'); }
 render();
 
