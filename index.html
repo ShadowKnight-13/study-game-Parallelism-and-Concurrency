@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Concurrency Lab</title>
+    <meta name="description" content="A factory simulator and code-rescue game for learning Python concurrency." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-mark"><span class="brand-dot"></span><span>CONCURRENCY LAB</span></div>
+        <div class="topbar-meta"><span class="status-light"></span><span>LAB ONLINE</span><span class="divider"></span><span id="score-label">0 XP</span></div>
+      </header>
+
+      <main class="dashboard">
+        <section class="hero panel">
+          <div class="hero-copy">
+            <p class="eyebrow">SHIFT 01 / SYSTEMS TRAINING</p>
+            <h1>Make the factory<br /><em>think in parallel.</em></h1>
+            <p class="hero-text">Diagnose broken Python workers, choose the right execution model, and keep the production line moving.</p>
+            <div class="hero-stats"><span><strong id="solved-count">0</strong> SCENARIOS SOLVED</span><span><strong id="streak-count">0</strong> STREAK</span></div>
+          </div>
+          <div class="hero-illustration" aria-hidden="true">
+            <div class="orb orb-one"></div><div class="orb orb-two"></div><div class="orb orb-three"></div>
+            <div class="circuit circuit-a"></div><div class="circuit circuit-b"></div><div class="circuit circuit-c"></div>
+            <div class="core">↗</div>
+          </div>
+        </section>
+
+        <div class="workspace-grid">
+          <aside class="scenario-panel panel">
+            <div class="section-heading"><div><p class="eyebrow">FACTORY FLOOR</p><h2>Choose a shift</h2></div><span class="count-badge">3 OPS</span></div>
+            <div id="scenario-list" class="scenario-list"></div>
+            <div class="floor-note"><span class="note-icon">i</span><p>Each shift tests a different Python execution model. Read the symptoms before touching the code.</p></div>
+          </aside>
+
+          <section class="workbench panel">
+            <div class="workbench-header">
+              <div><p class="eyebrow" id="scenario-kicker">ACTIVE OPERATION</p><h2 id="scenario-title">Loading…</h2></div>
+              <div class="difficulty" id="difficulty-label">TRAINING</div>
+            </div>
+            <div class="mission-card"><div class="mission-icon" id="mission-icon">◈</div><div><p class="eyebrow">MISSION BRIEF</p><p id="mission-text"></p></div></div>
+
+            <div class="pipeline-section"><div class="subhead"><h3>Production telemetry</h3><span id="telemetry-label">IDLE</span></div><div id="telemetry" class="telemetry"></div></div>
+
+            <div class="rescue-section"><div class="subhead"><div><h3>Code rescue</h3><p class="subcopy">Find the fault, then patch the worker.</p></div><span class="python-tag">PYTHON 3</span></div><div class="code-card"><div class="code-top"><span><i></i><i></i><i></i></span><span id="file-label">worker.py</span><span class="bug-label">● BUG DETECTED</span></div><pre id="code-block"></pre></div><div id="choices" class="choices"></div></div>
+
+            <div id="feedback" class="feedback hidden"></div>
+            <button id="run-button" class="run-button" type="button"><span>RUN PATCHED LINE</span><span class="button-arrow">→</span></button>
+          </section>
+        </div>
+
+        <section class="concept-strip"><div class="concept-title"><p class="eyebrow">FIELD GUIDE</p><h2>Keep these rules in your toolkit</h2></div><div class="concept-cards"><article><span class="concept-number">01</span><h3>Waiting ≠ working</h3><p>Threads and async code shine when tasks spend time waiting on I/O.</p></article><article><span class="concept-number">02</span><h3>CPU needs workers</h3><p>For heavy computation, processes can run truly in parallel around the GIL.</p></article><article><span class="concept-number">03</span><h3>Shared state bites</h3><p>Protect shared data with coordination—or design the sharing away.</p></article></div></section>
+      </main>
+      <footer><span>CONCURRENCY LAB / BUILD 01</span><span>LEARN BY OPERATING</span></footer>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>
+
